@@ -221,16 +221,16 @@ subsection \<open>Event system\<close>
 
 fun system :: "(event, cstate_scheduler \<times> watchdog_chain) event_system" where
   "system (DISPATCH 0) = Some (apply_fst dispatch)"
-| "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (watchdog_add_impl ev n))"
-| "system WATCHDOG_TICK = Some (apply_snd watchdog_tick_impl)"
+| "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (wadd_impl ev n))"
+| "system WATCHDOG_TICK = Some (apply_snd wtick_impl)"
 | "system _ = None"
 
 lemma system_eval:
   "system (PARTITION n) = None"
   "system (DISPATCH 0) = Some (apply_fst dispatch)"
   "ev > 0 \<Longrightarrow> system (DISPATCH ev) = None"
-  "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (watchdog_add_impl ev n))"
-  "system WATCHDOG_TICK = Some (apply_snd watchdog_tick_impl)"
+  "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (wadd_impl ev n))"
+  "system WATCHDOG_TICK = Some (apply_snd wtick_impl)"
   unfolding system.simps apply auto
   apply (cases ev) by auto
 
@@ -321,25 +321,25 @@ theorem sValidNF_dispatch:
    prefer 2 apply (rule sValidNF_dispatch')
   apply (rule assms) by (auto simp add: rel_total.simps rel_scheduler_def cinv_def rel_def)
 
-fun spec_watchdog_tick_system ::
+fun wtick_system_spec ::
   "astate_scheduler \<times> astate_watchdog \<Rightarrow> (astate_scheduler \<times> astate_watchdog) \<times> event set" where
-  "spec_watchdog_tick_system (s0, w0) =
+  "wtick_system_spec (s0, w0) =
    (if w0 0 = Some 1 then
       ((fst (spec_dispatch s0),
-        (spec_watchdog_tick w0)(0 \<mapsto> next_watchdog_pos s0)),
-       (DISPATCH ` spec_watchdog_tick_ev w0 - {DISPATCH 0} \<union> {PARTITION (next_partition s0)}))
+        (wtick_spec w0)(0 \<mapsto> next_watchdog_pos s0)),
+       (DISPATCH ` wtick_spec_ev w0 - {DISPATCH 0} \<union> {PARTITION (next_partition s0)}))
     else
-      ((s0, spec_watchdog_tick w0),
-       DISPATCH ` spec_watchdog_tick_ev w0))"
-declare spec_watchdog_tick_system.simps [simp del]
+      ((s0, wtick_spec w0),
+       DISPATCH ` wtick_spec_ev w0))"
+declare wtick_system_spec.simps [simp del]
 
 theorem sValidNF_watchdog_tick:
   "sValidNF system
     (\<lambda>p es. rel_total (s0, w0) p \<and> nil\<^sub>e es)
     WATCHDOG_TICK
-    (\<lambda>p es. rel_total (fst (spec_watchdog_tick_system (s0, w0))) p \<and>
+    (\<lambda>p es. rel_total (fst (wtick_system_spec (s0, w0))) p \<and>
             distinct es \<and>
-            set es = snd (spec_watchdog_tick_system (s0, w0)))"
+            set es = snd (wtick_system_spec (s0, w0)))"
 proof -
   have pre1:
     "DISPATCH 0 \<notin> set es \<Longrightarrow>
@@ -432,37 +432,37 @@ proof -
   have a: "sValidNF_list system
             (\<lambda>s' es'. s' = (cs0, cw0) \<and> nil\<^sub>e es')
              es
-            (\<lambda>s' es'. rel_total (fst (spec_watchdog_tick_system (s0, w0))) s' \<and>
+            (\<lambda>s' es'. rel_total (fst (wtick_system_spec (s0, w0))) s' \<and>
                       distinct es' \<and>
-                      set es' = snd (spec_watchdog_tick_system (s0, w0)))"
+                      set es' = snd (wtick_system_spec (s0, w0)))"
     if "rel_scheduler s0 cs0"
-       "rel_watchdog (spec_watchdog_tick w0) cw0"
+       "rel_watchdog (wtick_spec w0) cw0"
        "distinct es"
-       "set es = DISPATCH ` spec_watchdog_tick_ev w0" for cs0 cw0 es
+       "set es = DISPATCH ` wtick_spec_ev w0" for cs0 cw0 es
   proof -
     have a1: "\<forall>e\<in>set es. \<exists>i. e = DISPATCH i"
-      unfolding that spec_watchdog_tick_def by auto    
+      unfolding that wtick_spec_def by auto    
     show ?thesis
     proof (cases "w0 0 = Some 1")
       case True
       have b1: "DISPATCH 0 \<in> set es"
-        using True spec_watchdog_tick_ev_def that by auto
-      have b2: "spec_watchdog_tick w0 0 = None"
-        by (auto simp add: spec_watchdog_tick_def True)
+        using True wtick_spec_ev_def that by auto
+      have b2: "wtick_spec w0 0 = None"
+        by (auto simp add: wtick_spec_def True)
       show ?thesis
-        apply (auto simp add: True spec_watchdog_tick_system.simps)
+        apply (auto simp add: True wtick_system_spec.simps)
         apply (rule sValidNF_list_strengthen_post)
          prefer 2 apply (rule pre2[OF b1 that(3) a1 b2 that(1) that(2)])
         using True that by auto
     next
       case False
       have c1: "DISPATCH 0 \<notin> set es"
-        using False spec_watchdog_tick_ev_def that by auto
+        using False wtick_spec_ev_def that by auto
       show ?thesis
         unfolding nil_event_def
         apply (rule sValidNF_list_strengthen_post)
          prefer 2 apply (rule pre1[OF c1 a1])
-        using False that by (auto simp add: rel_total.simps spec_watchdog_tick_system.simps)
+        using False that by (auto simp add: rel_total.simps wtick_system_spec.simps)
     qed
   qed
   show ?thesis
@@ -485,14 +485,14 @@ definition spec_atick :: "astate \<Rightarrow> astate" where
   "spec_atick a =
     \<lparr>a_ttbl = a_ttbl a,
     frame_time = (frame_time a + 1) mod frame_length (a_ttbl a),
-    wchain = spec_watchdog_tick (wchain a)\<rparr>"
+    wchain = wtick_spec (wchain a)\<rparr>"
 
 definition spec_atick_ev :: "astate \<Rightarrow> event set" where
   "spec_atick_ev a =
     (if at_window_boundary (a_ttbl a) (frame_time a) then
-       DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+       DISPATCH ` wtick_spec_ev (wchain a) \<union>
        {PARTITION (partition_at_time (a_ttbl a) ((frame_time a + 1) mod frame_length (a_ttbl a)))}
-     else DISPATCH ` spec_watchdog_tick_ev (wchain a))"
+     else DISPATCH ` wtick_spec_ev (wchain a))"
 
 fun arel :: "astate \<Rightarrow> astate_scheduler \<times> astate_watchdog \<Rightarrow> bool" where
   "arel a (as, aw) \<longleftrightarrow>
@@ -516,7 +516,7 @@ declare ainv.simps [simp del]
 theorem spec_atick_refines:
   assumes "arel a (as, aw)"
     and "ainv (as, aw)"
-  shows "arel (spec_atick a) (fst (spec_watchdog_tick_system (as, aw)))"
+  shows "arel (spec_atick a) (fst (wtick_system_spec (as, aw)))"
 proof -
   have g1: "length (as_ttbl as) > 0"
     using assms(2) ainv.simps by auto
@@ -574,16 +574,16 @@ proof -
     proof (cases "wpos = 1")
       case True
       then show ?thesis
-        using assms unfolding Some True spec_watchdog_tick_system.simps spec_atick_def spec_dispatch_def next_watchdog_pos_def
-        using a arel.simps by (auto simp add: True Some spec_watchdog_tick_def)
+        using assms unfolding Some True wtick_system_spec.simps spec_atick_def spec_dispatch_def next_watchdog_pos_def
+        using a arel.simps by (auto simp add: True Some wtick_spec_def)
     next
       case False
       have c1: "wpos > 1"
         using b1 False by auto
-      have c2: "spec_watchdog_tick aw 0 = Some (wpos - 1)"
-        unfolding spec_watchdog_tick_def using Some c1 by auto
-      have c3: "fst (spec_watchdog_tick_system (as, aw)) = (as, spec_watchdog_tick aw)"
-        unfolding spec_watchdog_tick_system.simps
+      have c2: "wtick_spec aw 0 = Some (wpos - 1)"
+        unfolding wtick_spec_def using Some c1 by auto
+      have c3: "fst (wtick_system_spec (as, aw)) = (as, wtick_spec aw)"
+        unfolding wtick_system_spec.simps
         using False Some by auto
       have c4: "frame_time a = frame_time_to_window (as_ttbl as) (window_id as + 1) - wpos"
         using assms(1) Some arel.simps by auto
@@ -598,7 +598,7 @@ proof -
                 frame_time_to_window_mono_strict frame_time_to_window_total less_diff_conv
                 less_imp_diff_less less_le_trans plus_1_eq_Suc)
       show ?thesis
-        unfolding spec_atick_def fst_conv c3 spec_watchdog_tick_def arel.simps
+        unfolding spec_atick_def fst_conv c3 wtick_spec_def arel.simps
         using c1 apply (auto simp add: Some b2)
         unfolding c4 apply auto unfolding c6 using c7 apply auto
         using assms(1) unfolding arel.simps by auto
@@ -609,9 +609,9 @@ qed
 theorem spec_atick_ainv:
   assumes "arel a (as, aw)"
     and "ainv (as, aw)"
-  shows "ainv (fst (spec_watchdog_tick_system (as, aw)))"
+  shows "ainv (fst (wtick_system_spec (as, aw)))"
   using assms ainv.simps
-  apply (auto simp: spec_dispatch_def next_watchdog_pos_def spec_watchdog_tick_def spec_watchdog_tick_system.simps)
+  apply (auto simp: spec_dispatch_def next_watchdog_pos_def wtick_spec_def wtick_system_spec.simps)
   apply (metis mod_less_divisor neq0_conv not_less_zero)
   using Suc_lessD mod_less_divisor window_time_pos' apply blast
   apply (cases "aw 0") by auto
@@ -619,7 +619,7 @@ theorem spec_atick_ainv:
 theorem spec_atick_output:
   assumes "arel a (as, aw)"
     and "ainv (as, aw)"
-  shows "spec_atick_ev a = snd (spec_watchdog_tick_system (as, aw))"
+  shows "spec_atick_ev a = snd (wtick_system_spec (as, aw))"
 proof (cases "aw 0")
   case None
   then show ?thesis using assms arel.simps by auto
@@ -676,20 +676,20 @@ next
         using assms d1 ainv.simps by auto
     qed
     then show ?thesis
-      unfolding spec_atick_def spec_atick_ev_def spec_watchdog_tick_system.simps snd_conv
+      unfolding spec_atick_def spec_atick_ev_def wtick_system_spec.simps snd_conv
                 Some True arel.simps      
       using Some True b4 apply auto
-      unfolding spec_watchdog_tick_ev_def using assms(1) unfolding arel.simps by auto
+      unfolding wtick_spec_ev_def using assms(1) unfolding arel.simps by auto
   next
     case False
     show ?thesis
       using Some False b4
-      apply (auto simp add: spec_atick_def spec_atick_ev_def spec_watchdog_tick_system.simps)
+      apply (auto simp add: spec_atick_def spec_atick_ev_def wtick_system_spec.simps)
       subgoal for x
-        unfolding spec_watchdog_tick_ev_def using assms(1) apply (auto simp add: arel.simps)
+        unfolding wtick_spec_ev_def using assms(1) apply (auto simp add: arel.simps)
         by (metis (mono_tags, lifting) image_eqI mem_Collect_eq neq0_conv option.distinct(1))
       subgoal for x
-        unfolding spec_watchdog_tick_ev_def using assms(1) apply (auto simp add: arel.simps)
+        unfolding wtick_spec_ev_def using assms(1) apply (auto simp add: arel.simps)
         by (metis (mono_tags, lifting) image_eqI mem_Collect_eq not_gr_zero option.inject)
       done
   qed
@@ -713,8 +713,8 @@ theorem sValidNF_watchdog_tick_full:
     subgoal for p es
       apply (intro conjI)
       subgoal  
-      apply (rule exI[where x="fst (fst (spec_watchdog_tick_system (as, aw)))"])
-      apply (rule exI[where x="snd (fst (spec_watchdog_tick_system (as, aw)))"])
+      apply (rule exI[where x="fst (fst (wtick_system_spec (as, aw)))"])
+      apply (rule exI[where x="snd (fst (wtick_system_spec (as, aw)))"])
         by (auto simp add: spec_atick_refines spec_atick_ainv)
       using spec_atick_output by auto
     done

@@ -71,8 +71,8 @@ subsection \<open>Imperative version of watchdog_add\<close>
 text \<open>
   While loop keeps track of current position in the list and remaining ticks.
 \<close>
-definition watchdog_add_impl' :: "task_id \<Rightarrow> nat \<Rightarrow> (watchdog_chain, event, nat \<times> nat) event_monad" where
-  "watchdog_add_impl' evt_id n = whileLoop (\<lambda>r s. snd r > 0) (\<lambda>r.
+definition wadd_impl' :: "task_id \<Rightarrow> nat \<Rightarrow> (watchdog_chain, event, nat \<times> nat) event_monad" where
+  "wadd_impl' evt_id n = whileLoop (\<lambda>r s. snd r > 0) (\<lambda>r.
      get_chain_length \<bind> (\<lambda>len.
      if fst r \<ge> len then
        insert_chain_pos (fst r) evt_id (snd r) \<bind> (\<lambda>_.
@@ -86,8 +86,8 @@ definition watchdog_add_impl' :: "task_id \<Rightarrow> nat \<Rightarrow> (watch
           insert_chain_pos (fst r) evt_id (snd r) \<bind> (\<lambda>_.
           return (fst r + 1, 0))))))) (0, n)"  \<comment> \<open>Add at current iteration\<close>
 
-definition watchdog_add_impl :: "task_id \<Rightarrow> nat \<Rightarrow> (watchdog_chain, event, unit) event_monad" where
-  "watchdog_add_impl evt_id n = (watchdog_add_impl' evt_id n) \<bind> (\<lambda>_. return ())"
+definition wadd_impl :: "task_id \<Rightarrow> nat \<Rightarrow> (watchdog_chain, event, unit) event_monad" where
+  "wadd_impl evt_id n = (wadd_impl' evt_id n) \<bind> (\<lambda>_. return ())"
 
 
 text \<open>Functional array implementation of watchdog_add.
@@ -248,13 +248,13 @@ proof -
     using a1 a2 by auto
 qed
 
-lemma watchdog_add_impl_rule':
+lemma wadd_impl_rule':
   assumes "n > 0"
   shows
     "\<lbrace> \<lambda>s es. s = s0 \<and> es = e0 \<rbrace>
-      watchdog_add_impl' evt_id n
+      wadd_impl' evt_id n
      \<lbrace> \<lambda>r s es. fst r = Suc (watchdog_add_pos s0 n) \<and> s = snd (watchdog_add_fun evt_id n s0 (fst r)) \<and> es = e0 \<rbrace>!"
-  unfolding watchdog_add_impl'_def
+  unfolding wadd_impl'_def
   apply (rule validNF_whileLoop[where I="\<lambda>r s e. watchdog_add_fun evt_id n s0 (fst r) = (snd r, s) \<and>
                                                  fst r \<le> Suc (watchdog_add_pos s0 n) \<and> e = e0" and
                                       R="measure (\<lambda>(r,s). Suc (watchdog_add_pos s0 n) - fst r)"])
@@ -289,23 +289,23 @@ proof -
     using a1 a2 a3 by blast
 qed
 
-lemma watchdog_add_impl_rule2':
+lemma wadd_impl_rule2':
   assumes "n > 0"
   shows
     "\<lbrace> \<lambda>s es. s = s0 \<and> es = e0 \<rbrace>
-      watchdog_add_impl' evt_id n
+      wadd_impl' evt_id n
      \<lbrace> \<lambda>r s es. s = Watchdog.watchdog_add evt_id n s0 \<and> es = e0 \<rbrace>!"
-  apply (rule validNF_strengthen_post[OF watchdog_add_impl_rule'])
+  apply (rule validNF_strengthen_post[OF wadd_impl_rule'])
   using watchdog_add_fun_correct2 assms by auto
 
-lemma watchdog_add_impl_rule2:
+lemma wadd_impl_rule2:
   assumes "n > 0"
   shows
     "\<lbrace> \<lambda>s es. s = s0 \<and> es = e0 \<rbrace>
-      watchdog_add_impl evt_id n
+      wadd_impl evt_id n
      \<lbrace> \<lambda>_ s es. s = Watchdog.watchdog_add evt_id n s0 \<and> es = e0 \<rbrace>!"
-  unfolding watchdog_add_impl_def
-  apply wp apply (rule watchdog_add_impl_rule2')
+  unfolding wadd_impl_def
+  apply wp apply (rule wadd_impl_rule2')
   using assms apply auto by wp
 
 subsection \<open>Imperative version of watchdog_tick\<close>
@@ -481,17 +481,17 @@ lemma extract_zero_impl_rule2:
   apply (rule validNF_strengthen_post[OF extract_zero_impl_rule])
   using extract_zero_fun_correct by auto
 
-definition watchdog_tick_impl :: "(watchdog_chain, event, unit) event_monad" where
-  "watchdog_tick_impl = (
+definition wtick_impl :: "(watchdog_chain, event, unit) event_monad" where
+  "wtick_impl = (
     decr_head_impl 1 \<bind> (\<lambda>_.
     extract_zero_impl \<bind> (\<lambda>_. return ())))"
 
-lemma watchdog_tick_impl_rule:
+lemma wtick_impl_rule:
   "\<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace>
-     watchdog_tick_impl
+     wtick_impl
    \<lbrace> \<lambda>_ s es. s = snd (Watchdog.watchdog_tick s0) \<and>
               es = map DISPATCH (fst (Watchdog.watchdog_tick s0)) \<rbrace>!"
-  unfolding watchdog_tick_impl_def
+  unfolding wtick_impl_def
   apply wp
     apply (rule decr_head_impl_rule)
    apply (rule validNF_strengthen_post)
@@ -651,18 +651,18 @@ theorem remove_chain_pos_impl_rule:
    apply (simp add: remove_chain_pos_prop1)
   by (simp add: remove_chain_pos_prop2)
 
-definition watchdog_remove_impl :: "task_id \<Rightarrow> (watchdog_chain, event, unit) event_monad" where
-  "watchdog_remove_impl evt_id = (
+definition wremove_impl :: "task_id \<Rightarrow> (watchdog_chain, event, unit) event_monad" where
+  "wremove_impl evt_id = (
     find_chain_pos_impl evt_id \<bind> (\<lambda>r.
     if fst r then
       remove_chain_pos_impl (snd r - 1)
     else return ()))"
 
-lemma watchdog_remove_impl_rule':
+lemma wremove_impl_rule':
   "\<lbrace> \<lambda>s es. s = s0 \<and> es = e0 \<rbrace>
-    watchdog_remove_impl evt_id
+    wremove_impl evt_id
    \<lbrace> \<lambda>r s es. s = watchdog_remove2 evt_id s0 \<and> es = e0 \<rbrace>!"
-  unfolding watchdog_remove_impl_def
+  unfolding wremove_impl_def
   apply (rule validNF_bind)
    apply (rule find_chain_pos_impl_rule)
   subgoal for r
@@ -691,11 +691,11 @@ lemma watchdog_remove_impl_rule':
   qed
   done
 
-lemma watchdog_remove_impl_rule:
+lemma wremove_impl_rule:
   "\<lbrace> \<lambda>s es. s = s0 \<and> es = e0 \<rbrace>
-    watchdog_remove_impl evt_id
+    wremove_impl evt_id
    \<lbrace> \<lambda>r s es. s = watchdog_remove evt_id s0 \<and> es = e0 \<rbrace>!"
-  using watchdog_remove_impl_rule' watchdog_remove2_correct 
+  using wremove_impl_rule' watchdog_remove2_correct 
   by auto
 
 subsection \<open>Refinement proofs for watchdog\<close>
@@ -711,14 +711,14 @@ theorem watchdog_add_rule':
     and "as evt_id = None"
   shows
   "\<lbrace> \<lambda>cs es. \<exists>cs'. rel_watchdog as cs' \<and> cs = cs' \<and> es = e0 \<rbrace>
-     watchdog_add_impl evt_id n
+     wadd_impl evt_id n
    \<lbrace> \<lambda>_ cs es. rel_watchdog (as(evt_id \<mapsto> n)) cs \<and> es = e0 \<rbrace>!"
   apply (rule validNF_ex_pre)
   subgoal for cs'
     apply (subst validNF_conj_pre)
     apply auto
     apply (rule validNF_strengthen_post)
-    apply (rule watchdog_add_impl_rule2[OF assms(1)])
+    apply (rule wadd_impl_rule2[OF assms(1)])
     apply (auto simp add: rel_watchdog_def)
     apply (rule watchdog_add_valid) using assms apply auto
     apply (subst watchdog_add_full[OF _ assms(1)])
@@ -730,7 +730,7 @@ theorem watchdog_add_rule:
     and "as evt_id = None"
   shows
   "\<lbrace> \<lambda>cs es. rel_watchdog as cs \<and> nil\<^sub>e es \<rbrace>
-     watchdog_add_impl evt_id n
+     wadd_impl evt_id n
    \<lbrace> \<lambda>_ cs es. rel_watchdog (as(evt_id \<mapsto> n)) cs \<and> nil\<^sub>e es \<rbrace>!"
   apply (rule validNF_weaken_pre)
   unfolding nil_event_def
@@ -738,47 +738,47 @@ theorem watchdog_add_rule:
   by (auto simp add: assms)
 
 
-definition spec_watchdog_tick :: "astate_watchdog \<Rightarrow> astate_watchdog" where
-  "spec_watchdog_tick as =
+definition wtick_spec :: "astate_watchdog \<Rightarrow> astate_watchdog" where
+  "wtick_spec as =
     (\<lambda>ev. case as ev of None \<Rightarrow> None
                        | Some n \<Rightarrow> if n > 1 then Some (n - 1) else None)"
 
-definition spec_watchdog_tick_ev :: "astate_watchdog \<Rightarrow> task_id set" where
-  "spec_watchdog_tick_ev as = {ev. as ev = Some 1}"
+definition wtick_spec_ev :: "astate_watchdog \<Rightarrow> task_id set" where
+  "wtick_spec_ev as = {ev. as ev = Some 1}"
 
 theorem watchdog_tick_full:
   assumes "rel_watchdog as cs"
-  shows "set (fst (watchdog_tick cs)) = spec_watchdog_tick_ev as"
-        "rel_watchdog (spec_watchdog_tick as) (snd (watchdog_tick cs))"
+  shows "set (fst (watchdog_tick cs)) = wtick_spec_ev as"
+        "rel_watchdog (wtick_spec as) (snd (watchdog_tick cs))"
 proof -
   have valid: "valid_watchdog cs"
     using assms unfolding rel_watchdog_def by auto
-  have a: "evt_id \<in> set (fst (watchdog_tick cs)) \<longleftrightarrow> evt_id \<in> spec_watchdog_tick_ev as" for evt_id
+  have a: "evt_id \<in> set (fst (watchdog_tick cs)) \<longleftrightarrow> evt_id \<in> wtick_spec_ev as" for evt_id
     apply (cases "event_time cs evt_id = None")
-    using assms apply (auto simp add: watchdog_tick_None spec_watchdog_tick_ev_def rel_watchdog_def)[1]
+    using assms apply (auto simp add: watchdog_tick_None wtick_spec_ev_def rel_watchdog_def)[1]
     apply (cases "event_time cs evt_id = Some 0")
     apply (auto simp add: watchdog_tick_triv[OF valid])[1]
     apply (cases "event_time cs evt_id = Some 1")
-    using assms apply (auto simp add: watchdog_tick1 spec_watchdog_tick_ev_def rel_watchdog_def)[1]
-    using assms by (auto simp add: watchdog_tick2[OF valid] spec_watchdog_tick_ev_def rel_watchdog_def)
-  show "rel_watchdog (spec_watchdog_tick as) (snd (watchdog_tick cs))"
+    using assms apply (auto simp add: watchdog_tick1 wtick_spec_ev_def rel_watchdog_def)[1]
+    using assms by (auto simp add: watchdog_tick2[OF valid] wtick_spec_ev_def rel_watchdog_def)
+  show "rel_watchdog (wtick_spec as) (snd (watchdog_tick cs))"
     apply (auto simp add: rel_watchdog_def)
     apply (rule watchdog_tick_valid[OF valid])
     apply (rule ext) subgoal for evt_id
       apply (cases "event_time cs evt_id = None")
       subgoal
-        apply (auto simp add: watchdog_tick_None spec_watchdog_tick_def rel_watchdog_def)
+        apply (auto simp add: watchdog_tick_None wtick_spec_def rel_watchdog_def)
         apply (cases "as evt_id") using assms rel_watchdog_def by auto
       apply (cases "event_time cs evt_id = Some 0")
       subgoal by (auto simp add: watchdog_tick_triv[OF valid])[1]
       apply (cases "event_time cs evt_id = Some 1")
       subgoal
-        apply (auto simp add: watchdog_tick1[OF valid] spec_watchdog_tick_def)
+        apply (auto simp add: watchdog_tick1[OF valid] wtick_spec_def)
         apply (cases "as evt_id") using assms rel_watchdog_def by auto
-      apply (auto simp add: watchdog_tick2[OF valid] spec_watchdog_tick_def)
+      apply (auto simp add: watchdog_tick2[OF valid] wtick_spec_def)
       apply (cases "as evt_id") using assms rel_watchdog_def by auto
     done
-  show "set (fst (watchdog_tick cs)) = spec_watchdog_tick_ev as"
+  show "set (fst (watchdog_tick cs)) = wtick_spec_ev as"
     using a by auto
 qed
 
@@ -799,26 +799,26 @@ qed
 
 theorem watchdog_tick_rule':
   "\<lbrace> \<lambda>cs es. \<exists>cs'. rel_watchdog as cs' \<and> cs = cs' \<and> es = [] \<rbrace>
-     watchdog_tick_impl
-   \<lbrace> \<lambda>_ cs es. rel_watchdog (spec_watchdog_tick as) cs \<and>
+     wtick_impl
+   \<lbrace> \<lambda>_ cs es. rel_watchdog (wtick_spec as) cs \<and>
                distinct es \<and>
-               set es = DISPATCH ` (spec_watchdog_tick_ev as) \<rbrace>!"
+               set es = DISPATCH ` (wtick_spec_ev as) \<rbrace>!"
   apply (rule validNF_ex_pre)
   subgoal for cs'
     apply (subst validNF_conj_pre)
     apply auto
     apply (rule validNF_strengthen_post)
-     apply (rule watchdog_tick_impl_rule)
+     apply (rule wtick_impl_rule)
     apply (rule conjI)
     by (auto simp add: watchdog_tick_full watchdog_tick_event_distinct)
   done
 
 theorem watchdog_tick_rule:
   "\<lbrace> \<lambda>cs es. rel_watchdog as cs \<and> nil\<^sub>e es \<rbrace>
-     watchdog_tick_impl
-   \<lbrace> \<lambda>_ cs es. rel_watchdog (spec_watchdog_tick as) cs \<and>
+     wtick_impl
+   \<lbrace> \<lambda>_ cs es. rel_watchdog (wtick_spec as) cs \<and>
                distinct es \<and>
-               set es = DISPATCH ` (spec_watchdog_tick_ev as) \<rbrace>!"
+               set es = DISPATCH ` (wtick_spec_ev as) \<rbrace>!"
   apply (rule validNF_weaken_pre) unfolding nil_event_def
   apply (rule watchdog_tick_rule')
   by auto
@@ -843,14 +843,14 @@ qed
 
 theorem watchdog_remove_rule':
   "\<lbrace> \<lambda>cs es. \<exists>cs'. rel_watchdog as cs' \<and> cs = cs' \<and> es = e0 \<rbrace>
-     watchdog_remove_impl evt_id
+     wremove_impl evt_id
    \<lbrace> \<lambda>_ cs es. rel_watchdog (as(evt_id := None)) cs \<and> es = e0 \<rbrace>!"
   apply (rule validNF_ex_pre)
   subgoal for cs'
     apply (subst validNF_conj_pre)
     apply auto
     apply (rule validNF_strengthen_post)
-     apply (rule watchdog_remove_impl_rule)
+     apply (rule wremove_impl_rule)
     apply auto
     apply (rule watchdog_remove_full)
     by (auto simp add: watchdog_remove_valid)
@@ -858,7 +858,7 @@ theorem watchdog_remove_rule':
 
 theorem watchdog_remove_rule:
   "\<lbrace> \<lambda>cs es. rel_watchdog as cs \<and> nil\<^sub>e es \<rbrace>
-     watchdog_remove_impl evt_id
+     wremove_impl evt_id
    \<lbrace> \<lambda>_ cs es. rel_watchdog (as(evt_id := None)) cs \<and> nil\<^sub>e es \<rbrace>!"
   apply (rule validNF_weaken_pre) unfolding nil_event_def
    apply (rule watchdog_remove_rule')

@@ -27,9 +27,9 @@ definition tick :: "(cstate \<times> watchdog_chain, event, unit) event_monad" w
 
 fun system :: "(event, cstate \<times> watchdog_chain) event_system" where
   "system (DISPATCH 0) = Some (apply_fst dispatch_all)"
-| "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (watchdog_add_impl ev n))"
-| "system WATCHDOG_TICK = Some (apply_snd watchdog_tick_impl)"
-| "system (WATCHDOG_REMOVE ev) = Some (apply_snd (watchdog_remove_impl ev))"
+| "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (wadd_impl ev n))"
+| "system WATCHDOG_TICK = Some (apply_snd wtick_impl)"
+| "system (WATCHDOG_REMOVE ev) = Some (apply_snd (wremove_impl ev))"
 | "system TICK = Some tick"
 | "system _ = None"
 
@@ -37,9 +37,9 @@ lemma system_eval:
   "system (PARTITION n) = None"
   "system (DISPATCH 0) = Some (apply_fst dispatch_all)"
   "ev > 0 \<Longrightarrow> system (DISPATCH ev) = None"
-  "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (watchdog_add_impl ev n))"
-  "system WATCHDOG_TICK = Some (apply_snd watchdog_tick_impl)"
-  "system (WATCHDOG_REMOVE ev) = Some (apply_snd (watchdog_remove_impl ev))"
+  "system (WATCHDOG_ADD (ev, n)) = Some (apply_snd (wadd_impl ev n))"
+  "system WATCHDOG_TICK = Some (apply_snd wtick_impl)"
+  "system (WATCHDOG_REMOVE ev) = Some (apply_snd (wremove_impl ev))"
   "system TICK = Some tick"
   unfolding system.simps apply auto
   apply (cases ev) by auto
@@ -226,16 +226,16 @@ theorem sValidNF_dispatch:
   using assms by (auto simp add: rel_scheduler_def rel_total.simps)
 
 text \<open>Specification for watchdog tick in the event system\<close>
-fun spec_watchdog_tick_system ::
+fun wtick_system_spec ::
   "astate_scheduler \<times> astate_watchdog \<Rightarrow> (astate_scheduler \<times> astate_watchdog) \<times> event set" where
-  "spec_watchdog_tick_system (s0, w0) =
+  "wtick_system_spec (s0, w0) =
    (if w0 0 = Some 1 then
       ((fst (spec_dispatch s0),
-        (spec_watchdog_tick w0)(0 \<mapsto> snd (next_pair s0))),
-       (DISPATCH ` spec_watchdog_tick_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_pair s0))})
+        (wtick_spec w0)(0 \<mapsto> snd (next_pair s0))),
+       (DISPATCH ` wtick_spec_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_pair s0))})
     else
-      ((s0, spec_watchdog_tick w0),
-       DISPATCH ` spec_watchdog_tick_ev w0))"
+      ((s0, wtick_spec w0),
+       DISPATCH ` wtick_spec_ev w0))"
 
 theorem sValidNF_watchdog_tick:
   assumes "w0 0 = Some 1 \<longrightarrow> astate_scheduler.next_mode s0 \<noteq> NEXT_TICK"
@@ -243,9 +243,9 @@ theorem sValidNF_watchdog_tick:
   "sValidNF system
     (\<lambda>p es. rel_total (s0, w0) p \<and> nil\<^sub>e es)
     WATCHDOG_TICK
-    (\<lambda>p es. rel_total (fst (spec_watchdog_tick_system (s0, w0))) p \<and>
+    (\<lambda>p es. rel_total (fst (wtick_system_spec (s0, w0))) p \<and>
             distinct es \<and>
-            set es = snd (spec_watchdog_tick_system (s0, w0)))"
+            set es = snd (wtick_system_spec (s0, w0)))"
 proof -
   have pre1:
     "DISPATCH 0 \<notin> set es \<Longrightarrow>
@@ -339,23 +339,23 @@ proof -
   have a: "sValidNF_list system
      (\<lambda>s' es'. s' = (cs0, cw0) \<and> nil\<^sub>e es')
       es
-     (\<lambda>p es. rel_total (fst (spec_watchdog_tick_system (s0, w0))) p \<and>
+     (\<lambda>p es. rel_total (fst (wtick_system_spec (s0, w0))) p \<and>
              distinct es \<and>
-             set es = snd (spec_watchdog_tick_system (s0, w0)))"
+             set es = snd (wtick_system_spec (s0, w0)))"
     if "rel_scheduler s0 cs0"
-       "rel_watchdog (spec_watchdog_tick w0) cw0"
+       "rel_watchdog (wtick_spec w0) cw0"
        "distinct es"
-       "set es = DISPATCH ` spec_watchdog_tick_ev w0" for cs0 cw0 es
+       "set es = DISPATCH ` wtick_spec_ev w0" for cs0 cw0 es
   proof -
     have a1: "\<forall>e\<in>set es. \<exists>i. e = DISPATCH i"
-      unfolding that spec_watchdog_tick_def by auto
+      unfolding that wtick_spec_def by auto
     show ?thesis
     proof (cases "w0 0 = Some 1")
       case True
       have b1: "DISPATCH 0 \<in> set es"
-        using True spec_watchdog_tick_ev_def that by auto
-      have b2: "spec_watchdog_tick w0 0 = None"
-        by (auto simp add: spec_watchdog_tick_def True)
+        using True wtick_spec_ev_def that by auto
+      have b2: "wtick_spec w0 0 = None"
+        by (auto simp add: wtick_spec_def True)
       show ?thesis
         apply (rule sValidNF_list_strengthen_post)
          prefer 2 apply (rule pre2[OF b1 that(3) a1 b2 _ that(1) that(2)])
@@ -363,7 +363,7 @@ proof -
     next
       case False
       have c1: "DISPATCH 0 \<notin> set es"
-        using False spec_watchdog_tick_ev_def that by auto
+        using False wtick_spec_ev_def that by auto
       show ?thesis
         unfolding nil_event_def
         apply (rule sValidNF_list_strengthen_post)
@@ -386,9 +386,9 @@ theorem sValidNF_watchdog_tick':
   "sValidNF system
     (\<lambda>p es. rel_total (s0, w0) p \<and> nil\<^sub>e es)
     WATCHDOG_TICK
-    (\<lambda>p es. rel_total (s0, spec_watchdog_tick w0) p \<and>
+    (\<lambda>p es. rel_total (s0, wtick_spec w0) p \<and>
             distinct es \<and>
-            set es = DISPATCH ` spec_watchdog_tick_ev w0)"
+            set es = DISPATCH ` wtick_spec_ev w0)"
   apply (rule sValidNF_strengthen_post)
    prefer 2
    apply (rule sValidNF_watchdog_tick)
@@ -416,8 +416,8 @@ theorem sValidNF_tick1:
     TICK
     (\<lambda>p es. rel_total
         (fst (spec_dispatch (s0\<lparr>astate_scheduler.next_mode := NEXT_WINDOW\<rparr>)),
-        (spec_watchdog_tick (w0(0 := None)))(0 \<mapsto> snd (next_ttbl s0 ! 0))) p \<and>
-        ((\<lambda>t. distinct t \<and> set t = DISPATCH ` spec_watchdog_tick_ev (w0(0 := None))) ^\<^sub>e
+        (wtick_spec (w0(0 := None)))(0 \<mapsto> snd (next_ttbl s0 ! 0))) p \<and>
+        ((\<lambda>t. distinct t \<and> set t = DISPATCH ` wtick_spec_ev (w0(0 := None))) ^\<^sub>e
          (\<lambda>t. t = [PARTITION (fst (next_ttbl s0 ! 0))])) es)"
   apply (rule sValidNF_Some)
   apply (rule system_eval)
@@ -436,7 +436,7 @@ theorem sValidNF_tick1:
     apply (rule sValidNF_strengthen_post)
      prefer 2 apply (rule sValidNF_dispatch_frame)
       apply auto
-    by (auto simp add: spec_watchdog_tick_def next_pair_def next_ttbl_def)
+    by (auto simp add: wtick_spec_def next_pair_def next_ttbl_def)
   done
 
 theorem sValidNF_tick2:
@@ -445,14 +445,14 @@ theorem sValidNF_tick2:
   "sValidNF system
     (\<lambda>p es. rel_total (s0, w0) p \<and> nil\<^sub>e es)
     TICK
-    (\<lambda>p es. rel_total (fst (spec_watchdog_tick_system (s0, w0))) p \<and>
+    (\<lambda>p es. rel_total (fst (wtick_system_spec (s0, w0))) p \<and>
             distinct es \<and>
-            set es = snd (spec_watchdog_tick_system (s0, w0)))"
+            set es = snd (wtick_system_spec (s0, w0)))"
   apply (rule sValidNF_Some)
   apply (rule system_eval)
    apply (rule tick_rule2[OF assms])
   subgoal for p es
-    apply (auto simp del: spec_watchdog_tick_system.simps)
+    apply (auto simp del: wtick_system_spec.simps)
     apply (rule sValidNF_list_single)
     apply (rule sValidNF_weaken_pre)
      prefer 2 apply (rule sValidNF_watchdog_tick)
@@ -465,10 +465,10 @@ fun spec_tick_system ::
   "spec_tick_system (s0, w0) =
    (if astate_scheduler.next_mode s0 = NEXT_TICK then
       ((fst (spec_dispatch (s0\<lparr>astate_scheduler.next_mode := NEXT_WINDOW\<rparr>)),
-       (spec_watchdog_tick (w0(0 := None)))(0 \<mapsto> snd (next_ttbl s0 ! 0))),
-       (DISPATCH ` spec_watchdog_tick_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl s0 ! 0))})
+       (wtick_spec (w0(0 := None)))(0 \<mapsto> snd (next_ttbl s0 ! 0))),
+       (DISPATCH ` wtick_spec_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl s0 ! 0))})
     else
-      spec_watchdog_tick_system (s0, w0))"
+      wtick_system_spec (s0, w0))"
 
 theorem sValidNF_tick:
   assumes "w0 0 \<noteq> None"
@@ -482,21 +482,21 @@ theorem sValidNF_tick:
 proof (cases "astate_scheduler.next_mode s0 = NEXT_TICK")
   case True
   have a: "distinct t" "set t = snd (spec_tick_system (s0, w0))"
-    if assm_a: "((\<lambda>t. distinct t \<and> set t = DISPATCH ` spec_watchdog_tick_ev (w0(0 := None))) ^\<^sub>e
+    if assm_a: "((\<lambda>t. distinct t \<and> set t = DISPATCH ` wtick_spec_ev (w0(0 := None))) ^\<^sub>e
                 (\<lambda>t. t = [PARTITION (fst (next_ttbl s0 ! 0))])) t"
       "astate_scheduler.next_mode s0 = NEXT_TICK"
     for t
   proof -
     obtain t1 where a1: "t = t1 @ [PARTITION (fst (next_ttbl s0 ! 0))]"
-      "distinct t1" "set t1 = DISPATCH ` spec_watchdog_tick_ev (w0(0 := None))"
+      "distinct t1" "set t1 = DISPATCH ` wtick_spec_ev (w0(0 := None))"
       using assm_a(1) unfolding chop_event_def by auto
     show "distinct t"
       using a1 by auto
     have a2: "snd (spec_tick_system (s0, w0)) =
-      (DISPATCH ` spec_watchdog_tick_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl s0 ! 0))}"
+      (DISPATCH ` wtick_spec_ev w0) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl s0 ! 0))}"
       using assm_a(2) by auto
-    have a3: "spec_watchdog_tick_ev (w0(0 := None)) = spec_watchdog_tick_ev w0 - {0}"
-      by (auto simp add: spec_watchdog_tick_ev_def)
+    have a3: "wtick_spec_ev (w0(0 := None)) = wtick_spec_ev w0 - {0}"
+      by (auto simp add: wtick_spec_ev_def)
     have a4: "set t = set t1 \<union> {PARTITION (fst (next_ttbl s0 ! 0))}"
       unfolding a1(1) by auto
     show "set t = snd (spec_tick_system (s0, w0))"
@@ -551,23 +551,23 @@ definition spec_atick :: "astate \<Rightarrow> astate \<times> event set" where
   "spec_atick a =
     (if to_switch a then
       (\<lparr>a_cur_ttbl_id = a_next_ttbl_id a, frame_time = 0, a_next_ttbl_id = 0, a_next_mode = ONGOING,
-        wchain = spec_watchdog_tick (wchain a)\<rparr>,
-       DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+        wchain = wtick_spec (wchain a)\<rparr>,
+       DISPATCH ` wtick_spec_ev (wchain a) \<union>
        {PARTITION (fst (a_next_ttbl a ! 0))})
      else if frame_time a = frame_length (a_cur_ttbl a) - 1 \<and> a_next_mode a = ONGOING then
       (a\<lparr>frame_time := 0, a_next_mode := NO_SWITCH,
-       wchain := spec_watchdog_tick (wchain a)\<rparr>,
-       DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+       wchain := wtick_spec (wchain a)\<rparr>,
+       DISPATCH ` wtick_spec_ev (wchain a) \<union>
        {PARTITION (fst (a_cur_ttbl a ! 0))})
      else if at_window_boundary (a_cur_ttbl a) (frame_time a) then
       (a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-       wchain := spec_watchdog_tick (wchain a)\<rparr>,
-       DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+       wchain := wtick_spec (wchain a)\<rparr>,
+       DISPATCH ` wtick_spec_ev (wchain a) \<union>
        {PARTITION (partition_at_time (a_cur_ttbl a) ((frame_time a + 1) mod frame_length (a_cur_ttbl a)))})
      else
       (a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-       wchain := spec_watchdog_tick (wchain a)\<rparr>,
-       DISPATCH ` spec_watchdog_tick_ev (wchain a)))"
+       wchain := wtick_spec (wchain a)\<rparr>,
+       DISPATCH ` wtick_spec_ev (wchain a)))"
 
 fun arel :: "astate \<Rightarrow> astate_scheduler \<times> astate_watchdog \<Rightarrow> bool" where
   "arel a (as, aw) \<longleftrightarrow>
@@ -593,7 +593,7 @@ theorem spec_atick_refines1:
   assumes "arel a (as, aw)"
     and "as_inv (as, aw)"
     and "astate_scheduler.next_mode as \<noteq> NEXT_TICK"
-  shows "arel (fst (spec_atick a)) (fst (spec_watchdog_tick_system (as, aw)))"
+  shows "arel (fst (spec_atick a)) (fst (wtick_system_spec (as, aw)))"
 proof -
   have g1: "length (cur_ttbl as) > 0"
     using assms(2) by (auto simp add: ainv_def as_inv.simps)
@@ -686,11 +686,11 @@ proof -
           unfolding to_switch_def using NO_SWITCH by auto
         have e2: "fst (spec_atick a) =
                     a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-                      wchain := spec_watchdog_tick (wchain a)\<rparr>"
+                      wchain := wtick_spec (wchain a)\<rparr>"
           by (auto simp add: spec_atick_def e1 NO_SWITCH)
-        have e3: "fst (spec_watchdog_tick_system (as, aw)) =
+        have e3: "fst (wtick_system_spec (as, aw)) =
           (as\<lparr>window_id := (window_id as + 1) mod length (cur_ttbl as)\<rparr>,
-           (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+           (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
           using b5 by (auto simp add: Some wpos spec_dispatch_def NO_SWITCH)
         have e4: "next_pair as = cur_ttbl as ! ((window_id as + 1) mod length (cur_ttbl as))"
           using b5 by (auto simp add: next_pair_def NO_SWITCH)
@@ -703,8 +703,8 @@ proof -
             using b3 wpos b2 by auto
           subgoal using Some assms(1) by auto
           subgoal using Some assms(1) by auto
-          subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
-          subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+          subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
+          subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
           done
       next
         case NEXT_TICK
@@ -715,12 +715,12 @@ proof -
           unfolding to_switch_def using NEXT_WINDOW c1 by auto
         have e2: "fst (spec_atick a) = \<lparr>a_cur_ttbl_id = a_next_ttbl_id a, frame_time = 0,
                                         a_next_ttbl_id = 0, a_next_mode = ONGOING,
-                                        wchain = spec_watchdog_tick (wchain a)\<rparr>"
+                                        wchain = wtick_spec (wchain a)\<rparr>"
           unfolding spec_atick_def using e1 by auto
-        have e3: "fst (spec_watchdog_tick_system (as, aw)) =
+        have e3: "fst (wtick_system_spec (as, aw)) =
             (\<lparr>astate_scheduler.cur_ttbl_id = astate_scheduler.next_ttbl_id as, window_id = 0,
               reset = False, next_ttbl_id = 0, next_mode = ONGOING\<rparr>,
-             (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+             (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
           using Some True NEXT_WINDOW b5 by (auto simp add: spec_dispatch_def)
         have e4: "next_pair as = next_ttbl as ! 0"
           using next_pair_def NEXT_WINDOW b5 by auto
@@ -728,7 +728,7 @@ proof -
           unfolding e2 e3 e4 using arel.simps apply (auto simp add: cur_ttbl_def)
           using assms(1) Some apply auto[1]
           using b10 next_ttbl_def apply auto[1]
-          using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+          using Some assms(1) by (auto simp add: wtick_spec_def)
       next
         case NEXT_FRAME
         show ?thesis
@@ -739,12 +739,12 @@ proof -
             by (metis One_nat_def Suc_diff_1 b2 b7 frame_time_to_window_total gr_zeroI not_less_zero)
           have e2: "fst (spec_atick a) = \<lparr>a_cur_ttbl_id = a_next_ttbl_id a, frame_time = 0,
                                           a_next_ttbl_id = 0, a_next_mode = ONGOING,
-                                          wchain = spec_watchdog_tick (wchain a)\<rparr>"
+                                          wchain = wtick_spec (wchain a)\<rparr>"
             unfolding spec_atick_def to_switch_def e1 NEXT_FRAME b5 by auto
-          have e3: "fst (spec_watchdog_tick_system (as, aw)) =
+          have e3: "fst (wtick_system_spec (as, aw)) =
             (\<lparr>astate_scheduler.cur_ttbl_id = astate_scheduler.next_ttbl_id as, window_id = 0,
               reset = False, next_ttbl_id = 0, next_mode = ONGOING\<rparr>,
-             (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+             (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
             using b5 by (auto simp add: Some wpos spec_dispatch_def NEXT_FRAME True)
           have e4: "next_pair as = next_ttbl as ! 0"
             using b5 by (auto simp add: next_pair_def NEXT_FRAME True)
@@ -752,7 +752,7 @@ proof -
             unfolding e2 e3 e4 using arel.simps apply (auto simp add: cur_ttbl_def)
             using assms(1) Some apply auto[1]
             using b10 next_ttbl_def apply auto[1]
-            using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+            using Some assms(1) by (auto simp add: wtick_spec_def)
         next
           case False
           have e1: "window_id as + 1 < length (cur_ttbl as)"
@@ -767,11 +767,11 @@ proof -
           have e4: "frame_time a \<noteq> frame_length (a_cur_ttbl a) - 1"
             using e3 by auto
           have e5: "fst (spec_atick a) = a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-                                           wchain := spec_watchdog_tick (wchain a)\<rparr>"
+                                           wchain := wtick_spec (wchain a)\<rparr>"
             using b5 e4 by (auto simp add: spec_atick_def to_switch_def NEXT_FRAME)
-          have e6: "fst (spec_watchdog_tick_system (as, aw)) =
+          have e6: "fst (wtick_system_spec (as, aw)) =
             (as\<lparr>window_id := Suc (window_id as) mod length (cur_ttbl as)\<rparr>,
-             (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+             (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
             using b5 False by (auto simp add: NEXT_FRAME Some wpos spec_dispatch_def)
           have e7: "next_pair as = cur_ttbl as ! (Suc (window_id as) mod length (cur_ttbl as))"
             using b5 False by (auto simp add: next_pair_def NEXT_FRAME)
@@ -784,8 +784,8 @@ proof -
               using b3 wpos b2 by auto
             subgoal using Some assms(1) by auto
             subgoal using Some assms(1) by auto
-            subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
-            subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+            subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
+            subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
             done
         qed
       next
@@ -797,11 +797,11 @@ proof -
             unfolding b3 True wpos apply auto
             by (metis One_nat_def Suc_diff_1 b2 b7 frame_time_to_window_total gr_zeroI not_less_zero)
           have e2: "fst (spec_atick a) = a\<lparr>frame_time := 0, a_next_mode := NO_SWITCH,
-                                           wchain := spec_watchdog_tick (wchain a)\<rparr>"
+                                           wchain := wtick_spec (wchain a)\<rparr>"
             unfolding spec_atick_def to_switch_def e1 ONGOING b5 by auto
-          have e3: "fst (spec_watchdog_tick_system (as, aw)) =
+          have e3: "fst (wtick_system_spec (as, aw)) =
             (as\<lparr>window_id := 0, astate_scheduler.next_mode := NO_SWITCH\<rparr>,
-             (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+             (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
             using b5 by (auto simp add: Some wpos spec_dispatch_def ONGOING True)
           have e4: "next_pair as = cur_ttbl as ! 0"
             using b5 by (auto simp add: next_pair_def ONGOING True)
@@ -812,7 +812,7 @@ proof -
              apply (metis (no_types, lifting) One_nat_def Suc_diff_1 Suc_eq_plus1 True a b2 b3
                 diff_is_0_eq e1 g1 g3 mod_self wpos)
             using Some assms(1) apply auto[1]
-            using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+            using Some assms(1) by (auto simp add: wtick_spec_def)
         next
           case False
           have e1: "window_id as + 1 < length (cur_ttbl as)"
@@ -827,11 +827,11 @@ proof -
           have e4: "frame_time a \<noteq> frame_length (a_cur_ttbl a) - 1"
             using e3 by auto
           have e5: "fst (spec_atick a) = a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-                                           wchain := spec_watchdog_tick (wchain a)\<rparr>"
+                                           wchain := wtick_spec (wchain a)\<rparr>"
             using b5 e4 by (auto simp add: spec_atick_def to_switch_def ONGOING)
-          have e6: "fst (spec_watchdog_tick_system (as, aw)) =
+          have e6: "fst (wtick_system_spec (as, aw)) =
             (as\<lparr>window_id := Suc (window_id as) mod length (cur_ttbl as)\<rparr>,
-             (spec_watchdog_tick aw)(0 \<mapsto> snd (next_pair as)))"
+             (wtick_spec aw)(0 \<mapsto> snd (next_pair as)))"
             using b5 False by (auto simp add: ONGOING Some wpos spec_dispatch_def)
           have e7: "next_pair as = cur_ttbl as ! (Suc (window_id as) mod length (cur_ttbl as))"
             using b5 False by (auto simp add: next_pair_def ONGOING)
@@ -844,8 +844,8 @@ proof -
               using b3 wpos b2 by auto
             subgoal using Some assms(1) by auto
             subgoal using Some assms(1) by auto
-            subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
-            subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+            subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
+            subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
             done
         qed
       qed
@@ -862,14 +862,14 @@ proof -
         unfolding to_switch_def apply (cases "a_next_mode a")
         using False d3 by (auto simp add: assms(3) b4 b5)
       have d5: "fst (spec_atick a) = a\<lparr>frame_time := (frame_time a + 1) mod frame_length (a_cur_ttbl a),
-                                       wchain := spec_watchdog_tick (wchain a)\<rparr>"
+                                       wchain := wtick_spec (wchain a)\<rparr>"
         unfolding spec_atick_def using d3 d4 by auto
-      have d6: "fst (spec_watchdog_tick_system (as, aw)) = (as, spec_watchdog_tick aw)"
+      have d6: "fst (wtick_system_spec (as, aw)) = (as, wtick_spec aw)"
         using Some False by auto
       have d7: "wpos > 1"
         using False b1(1) nat_neq_iff by blast
-      have d8: "spec_watchdog_tick aw 0 = Some (wpos - 1)"
-        unfolding spec_watchdog_tick_def using Some d7 by auto
+      have d8: "wtick_spec aw 0 = Some (wpos - 1)"
+        unfolding wtick_spec_def using Some d7 by auto
       have d9: "frame_time_to_window (cur_ttbl as) (Suc (window_id as)) \<ge> wpos"
         apply (auto simp add: frame_time_to_window_next b7)
         using b1(2) by auto
@@ -882,8 +882,8 @@ proof -
         subgoal unfolding b3 using b2 d10 d7 d9 by auto
         subgoal using Some assms(1) by auto
         subgoal using Some assms(1) by auto
-        subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
-        subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+        subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
+        subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
         done
     qed
   qed
@@ -907,11 +907,11 @@ proof (cases "astate_scheduler.next_mode as = NEXT_TICK")
       by (auto simp add: to_switch_def a1)
     have a3: "fst (spec_atick a) =
       \<lparr>a_cur_ttbl_id = a_next_ttbl_id a, frame_time = 0, a_next_ttbl_id = 0, a_next_mode = ONGOING,
-       wchain = spec_watchdog_tick (wchain a)\<rparr>"
+       wchain = wtick_spec (wchain a)\<rparr>"
       unfolding spec_atick_def using a2 by auto
     have a4: "fst (spec_tick_system (as, aw)) =
       (\<lparr>astate_scheduler.cur_ttbl_id = astate_scheduler.next_ttbl_id as, window_id = 0, reset = False, next_ttbl_id = 0, next_mode = ONGOING\<rparr>,
-       (spec_watchdog_tick (aw(0 := None)))(0 \<mapsto> snd (next_ttbl as ! 0)))"
+       (wtick_spec (aw(0 := None)))(0 \<mapsto> snd (next_ttbl as ! 0)))"
       by (auto simp add: True spec_dispatch_def)
     show ?thesis
       unfolding a3 a4 using arel.simps
@@ -919,8 +919,8 @@ proof (cases "astate_scheduler.next_mode as = NEXT_TICK")
       using Some assms(1) apply auto[1]
       unfolding next_ttbl_def[symmetric]
         apply (cases "next_ttbl as") apply auto
-        subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
-        subgoal using Some assms(1) by (auto simp add: spec_watchdog_tick_def)
+        subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
+        subgoal using Some assms(1) by (auto simp add: wtick_spec_def)
         done
   qed
 next
@@ -933,7 +933,7 @@ theorem spec_atick_ainv1:
   assumes "arel a (as, aw)"
     and "as_inv (as, aw)"
     and "astate_scheduler.next_mode as \<noteq> NEXT_TICK"
-  shows "as_inv (fst (spec_watchdog_tick_system (as, aw)))"
+  shows "as_inv (fst (wtick_system_spec (as, aw)))"
 proof (cases "aw 0")
   case None
   then show ?thesis
@@ -1017,8 +1017,8 @@ next
     case False
     have a1: "wpos > 1"
       using False assms(2) Some as_inv.simps by auto
-    have a2: "spec_watchdog_tick aw 0 = Some (wpos - 1)"
-      unfolding spec_watchdog_tick_def using Some a1 by auto
+    have a2: "wtick_spec aw 0 = Some (wpos - 1)"
+      unfolding wtick_spec_def using Some a1 by auto
     show ?thesis
       using Some assms(2) False a2 by (auto simp add: ainv_def as_inv.simps)
   qed
@@ -1042,7 +1042,7 @@ proof (cases "astate_scheduler.next_mode as = NEXT_TICK")
       by (auto simp add: to_switch_def a1)
     have a4: "fst (spec_tick_system (as, aw)) =
       (\<lparr>astate_scheduler.cur_ttbl_id = astate_scheduler.next_ttbl_id as, window_id = 0, reset = False, next_ttbl_id = 0, next_mode = ONGOING\<rparr>,
-       (spec_watchdog_tick (aw(0 := None)))(0 \<mapsto> snd (next_ttbl as ! 0)))"
+       (wtick_spec (aw(0 := None)))(0 \<mapsto> snd (next_ttbl as ! 0)))"
       by (auto simp add: True spec_dispatch_def)
     show ?thesis
       unfolding a4 using assms Some apply (auto simp add: ainv_def next_ttbl_def cur_ttbl_def as_inv.simps)
@@ -1059,7 +1059,7 @@ theorem spec_atick_output1:
   assumes "arel a (as, aw)"
     and "as_inv (as, aw)"
     and "astate_scheduler.next_mode as \<noteq> NEXT_TICK"
-  shows "snd (spec_atick a) = snd (spec_watchdog_tick_system (as, aw))"
+  shows "snd (spec_atick a) = snd (wtick_system_spec (as, aw))"
 proof (cases "aw 0")
   case None
   then show ?thesis using assms as_inv.simps by auto
@@ -1132,20 +1132,20 @@ next
       have e1: "\<not>to_switch a"
         unfolding to_switch_def using NO_SWITCH by auto
       have e2: "snd (spec_atick a) =
-        DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+        DISPATCH ` wtick_spec_ev (wchain a) \<union>
         {PARTITION (partition_at_time (a_cur_ttbl a) ((frame_time a + 1) mod frame_length (a_cur_ttbl a)))}"
         using NO_SWITCH c1 e1 by (auto simp add: spec_atick_def)
       have e4: "next_pair as = cur_ttbl as ! ((window_id as + 1) mod length (cur_ttbl as))"
         using b5 by (auto simp add: next_pair_def NO_SWITCH)
-      have e5: "snd (spec_watchdog_tick_system (as, aw)) =
-        DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-        unfolding spec_watchdog_tick_system.simps Some wpos by auto
+      have e5: "snd (wtick_system_spec (as, aw)) =
+        DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+        unfolding wtick_system_spec.simps Some wpos by auto
       have e6: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
         using assms(1) unfolding arel.simps Some by auto
       show ?thesis
         unfolding e2 Some wpos e5 e4
         using c3 apply auto
-        unfolding spec_watchdog_tick_ev_def using e6 apply auto
+        unfolding wtick_spec_ev_def using e6 apply auto
         subgoal for x
           apply (rule image_eqI[where x=x]) apply auto
           by (metis One_nat_def Some neq0_conv wpos)
@@ -1159,19 +1159,19 @@ next
       have e1: "to_switch a"
         unfolding to_switch_def using NEXT_WINDOW c1 by auto
       have e2: "snd (spec_atick a) =
-        DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
+        DISPATCH ` wtick_spec_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
         unfolding spec_atick_def using e1 by auto
       have e3: "next_pair as = next_ttbl as ! 0"
         using NEXT_WINDOW b5 next_pair_def by auto
-      have e4: "snd (spec_watchdog_tick_system (as, aw)) =
-        DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-        unfolding spec_watchdog_tick_system.simps Some wpos by auto
+      have e4: "snd (wtick_system_spec (as, aw)) =
+        DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+        unfolding wtick_system_spec.simps Some wpos by auto
       have e5: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
         using assms(1) unfolding arel.simps Some by auto
       show ?thesis
         unfolding e2 e3 e4
         using Some a_next_ttbl_def assms(1) next_ttbl_def wpos apply (auto simp add: arel.simps)
-        unfolding spec_watchdog_tick_ev_def using e5 by auto
+        unfolding wtick_spec_ev_def using e5 by auto
     next
       case NEXT_FRAME
       show ?thesis
@@ -1183,19 +1183,19 @@ next
         have e2: "to_switch a"
           unfolding to_switch_def using NEXT_FRAME e1 by auto
         have e3: "snd (spec_atick a) =
-          DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
+          DISPATCH ` wtick_spec_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
           unfolding spec_atick_def using e1 e2 by auto
         have e4: "next_pair as = next_ttbl as ! 0"
           using NEXT_FRAME b5 next_pair_def True by auto
-        have e5: "snd (spec_watchdog_tick_system (as, aw)) =
-          DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-          unfolding spec_watchdog_tick_system.simps Some wpos by auto
+        have e5: "snd (wtick_system_spec (as, aw)) =
+          DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+          unfolding wtick_system_spec.simps Some wpos by auto
         have e6: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
           using assms(1) unfolding arel.simps Some by auto
         show ?thesis
           unfolding e3 e4 e5 Some wpos
           using Some a_next_ttbl_def assms(1) next_ttbl_def apply (auto simp add: arel.simps)
-          unfolding spec_watchdog_tick_ev_def using e6 apply auto
+          unfolding wtick_spec_ev_def using e6 apply auto
           subgoal for x
             apply (rule image_eqI[where x=x]) apply auto
             by (metis One_nat_def Some neq0_conv wpos)
@@ -1216,20 +1216,20 @@ next
         have e5: "\<not>to_switch a"
           unfolding to_switch_def using NEXT_FRAME e4 by auto
         have e6: "snd (spec_atick a) =
-          DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+          DISPATCH ` wtick_spec_ev (wchain a) \<union>
           {PARTITION (partition_at_time (a_cur_ttbl a) (Suc (frame_time a) mod frame_length (a_cur_ttbl a)))}"
           using NEXT_FRAME e5 c1 by (auto simp add: spec_atick_def)
         have e7: "next_pair as = cur_ttbl as ! ((window_id as + 1) mod length (cur_ttbl as))"
           using NEXT_FRAME b5 False by (auto simp add: next_pair_def)
-        have e8: "snd (spec_watchdog_tick_system (as, aw)) =
-          DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-          unfolding spec_watchdog_tick_system.simps Some wpos by auto
+        have e8: "snd (wtick_system_spec (as, aw)) =
+          DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+          unfolding wtick_system_spec.simps Some wpos by auto
         have e9: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
           using assms(1) unfolding arel.simps Some by auto
         show ?thesis
           unfolding e6 e7 e8 Some wpos
           using c3 apply auto
-          using assms(1) e9 apply (auto simp add: spec_watchdog_tick_ev_def arel.simps)
+          using assms(1) e9 apply (auto simp add: wtick_spec_ev_def arel.simps)
           subgoal for x
             apply (rule image_eqI[where x=x]) apply auto
             by (metis One_nat_def Some neq0_conv wpos)
@@ -1246,19 +1246,19 @@ next
         have e2: "\<not>to_switch a"
           unfolding to_switch_def using ONGOING e1 by auto
         have e3: "snd (spec_atick a) =
-          DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union> {PARTITION (fst (a_cur_ttbl a ! 0))}"
+          DISPATCH ` wtick_spec_ev (wchain a) \<union> {PARTITION (fst (a_cur_ttbl a ! 0))}"
           unfolding spec_atick_def using e1 e2 ONGOING by auto
         have e4: "next_pair as = cur_ttbl as ! 0"
           using ONGOING b5 next_pair_def True by auto
-        have e5: "snd (spec_watchdog_tick_system (as, aw)) =
-          DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-          unfolding spec_watchdog_tick_system.simps Some wpos by auto
+        have e5: "snd (wtick_system_spec (as, aw)) =
+          DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+          unfolding wtick_system_spec.simps Some wpos by auto
         have e6: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
           using assms(1) unfolding arel.simps Some by auto
         show ?thesis
           unfolding e3 e4 e5 Some wpos
           using Some a_cur_ttbl_def assms(1) cur_ttbl_def apply (auto simp add: arel.simps)
-          unfolding spec_watchdog_tick_ev_def using e6 apply auto
+          unfolding wtick_spec_ev_def using e6 apply auto
           subgoal for x
             apply (rule image_eqI[where x=x]) apply auto
             by (metis One_nat_def Some neq0_conv wpos)
@@ -1279,20 +1279,20 @@ next
         have e5: "\<not>to_switch a"
           unfolding to_switch_def using ONGOING e4 by auto
         have e6: "snd (spec_atick a) =
-          DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union>
+          DISPATCH ` wtick_spec_ev (wchain a) \<union>
           {PARTITION (partition_at_time (a_cur_ttbl a) (Suc (frame_time a) mod frame_length (a_cur_ttbl a)))}"
           using ONGOING e5 e4 c1 by (auto simp add: spec_atick_def)
         have e7: "next_pair as = cur_ttbl as ! ((window_id as + 1) mod length (cur_ttbl as))"
           using ONGOING b5 False by (auto simp add: next_pair_def)
-        have e8: "snd (spec_watchdog_tick_system (as, aw)) =
-          DISPATCH ` spec_watchdog_tick_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
-          unfolding spec_watchdog_tick_system.simps Some wpos by auto
+        have e8: "snd (wtick_system_spec (as, aw)) =
+          DISPATCH ` wtick_spec_ev aw - {DISPATCH 0} \<union> {PARTITION (fst (next_pair as))}"
+          unfolding wtick_system_spec.simps Some wpos by auto
         have e9: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
           using assms(1) unfolding arel.simps Some by auto
         show ?thesis
           unfolding e6 e7 e8 Some wpos
           using c3 apply auto
-          using assms(1) e9 apply (auto simp add: spec_watchdog_tick_ev_def arel.simps)
+          using assms(1) e9 apply (auto simp add: wtick_spec_ev_def arel.simps)
           subgoal for x
             apply (rule image_eqI[where x=x]) apply auto
             by (metis One_nat_def Some neq0_conv wpos)
@@ -1313,7 +1313,7 @@ next
     show ?thesis
       using False d3 apply (auto simp add: Some spec_atick_def d1 d3 to_switch_def)
           apply (cases "a_next_mode a") apply (auto simp add: d1 b5 assms(3))
-      unfolding spec_watchdog_tick_ev_def using d4 apply auto
+      unfolding wtick_spec_ev_def using d4 apply auto
       subgoal for x
         apply (rule image_eqI[where x=x]) apply auto
         by (metis neq0_conv option.distinct(1))
@@ -1346,17 +1346,17 @@ proof (cases "astate_scheduler.next_mode as = NEXT_TICK")
     have a2: "to_switch a"
       by (auto simp add: to_switch_def a1)
     have a3: "snd (spec_atick a) =
-      DISPATCH ` spec_watchdog_tick_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
+      DISPATCH ` wtick_spec_ev (wchain a) \<union> {PARTITION (fst (a_next_ttbl a ! 0))}"
       by (auto simp add: spec_atick_def a2)
     have a4: "snd (spec_tick_system (as, aw)) =
-      (DISPATCH ` spec_watchdog_tick_ev aw) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl as ! 0))}"
+      (DISPATCH ` wtick_spec_ev aw) - {DISPATCH 0} \<union> {PARTITION (fst (next_ttbl as ! 0))}"
       by (auto simp add: True)
     have a5: "wchain a 0 = None" "(\<forall>i>0. wchain a i = aw i)"
       using assms(1) unfolding arel.simps Some by auto
     have a6: "a_next_ttbl a = next_ttbl as"
       using Some a_next_ttbl_def arel.simps assms(1) next_ttbl_def by auto
     show ?thesis
-      unfolding a3 a4 using a5 a6 apply (auto simp add: spec_watchdog_tick_ev_def)
+      unfolding a3 a4 using a5 a6 apply (auto simp add: wtick_spec_ev_def)
       subgoal for x
         apply (rule image_eqI[where x=x])
          apply auto by (metis gt_or_eq_0 option.simps(3))

@@ -1,5 +1,12 @@
 ## Verifying partition scheduling using event systems
 
+The code is tested on Isabelle2018 with AutoCorres 1.5.
+
+https://isabelle.in.tum.de/
+
+https://ts.data61.csiro.au/projects/TS/autocorres.pml.html
+
+
 * ```EventSpecWhile```: definition and Hoare logic for event monads.
 * ```EventSystem```: definition and Hoare logic for event systems.
 * ```TimeTable```: basics properties of time tables.

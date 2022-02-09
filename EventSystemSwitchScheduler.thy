@@ -264,11 +264,10 @@ lemma switch_NF_rule [wp]:
   apply wp by auto
 
 definition update_cur_frame_time :: "(cstate, event, unit) event_monad" where
-  "update_cur_frame_time = doE
-     w_time \<leftarrow> get_window_time;
-     f_time \<leftarrow> get_cur_frame_time;
-     set_cur_frame_time (f_time + w_time)
-   odE"
+  "update_cur_frame_time =
+     get_window_time \<bind> (\<lambda>w_time.
+     get_cur_frame_time \<bind> (\<lambda>f_time.
+     set_cur_frame_time (f_time + w_time)))"
 
 lemma update_cur_frame_time_NF_rule [wp]:
   "\<lbrace> \<lambda>s. P (s\<lparr>cur_frame_time := cur_frame_time s + window_time s\<rparr>) \<rbrace>
@@ -329,6 +328,7 @@ text \<open>Due to the length of the dispatch function, we prove it in several
   sections: dispatch_part1, dispatch_part2, dispatch_part3. The overall
   implementation is dispatch_all.
 \<close>
+
 definition dispatch_part1 :: "(cstate, event, unit) event_monad" where
   "dispatch_part1 = get_next_mode \<bind> (\<lambda>mode.
     

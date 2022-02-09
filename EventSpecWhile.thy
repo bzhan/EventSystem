@@ -4,7 +4,9 @@ begin
 
 text \<open>Remove notation to fix conflicts\<close>
 no_notation NonDetMonad.valid   ("\<lbrace>_\<rbrace>/ _ /\<lbrace>_\<rbrace>")
+no_notation NonDetMonad.validNF   ("\<lbrace>_\<rbrace>/ _ /\<lbrace>_\<rbrace>!")
 no_notation NonDetMonad.invariant ("_ \<lbrace>_\<rbrace>" [59,0] 60)
+no_notation Monad_Syntax.bind (infixl "\<bind>" 54)
 
 subsection \<open>Event monad\<close>
 
@@ -43,6 +45,10 @@ definition put :: "'s \<Rightarrow> ('s,'e,unit) event_monad" where
 
 definition modify :: "('s \<Rightarrow> 's) \<Rightarrow> ('s,'e,unit) event_monad" where
   "modify f = (get \<bind> (\<lambda>s. put (f s)))"
+
+definition nondet :: "('s,'e,'a) event_monad \<Rightarrow> ('s,'e,'a) event_monad \<Rightarrow> ('s,'e,'a) event_monad"
+  (infixr "\<squnion>" 60) where
+  "f \<squnion> g = (\<lambda>s. let (rs1, f1) = f s; (rs2, f2) = g s in (rs1 \<union> rs2, f1 \<or> f2))"
 
 subsection \<open>Loops\<close>
 
@@ -85,11 +91,9 @@ print_ast_translation \<open>
   in [(@{type_syntax "fun"}, monad_tr_event)] end
 \<close>
 
-text {* Use K_bind_event to indicate the return argument of the left side
-     of the term bind is ignored. *}
-
-definition
-  K_bind_event_def [iff]: "K_bind_event \<equiv> \<lambda>x y z. x"
+text \<open>We use @{text K_bind} to syntactically indicate the
+  case where the return argument of the left side of a @{term bind}
+  is ignored\<close>
 
 nonterminal
   dobinds and dobind and nobind
@@ -106,8 +110,7 @@ syntax (xsymbols)
 
 translations
   "_do (_dobinds b bs) e"  == "_do b (_do bs e)"
-  "_do (_nobind b) e"      == "b \<bind>  (CONST K_bind_event e)"
-  "doE x <- a; e odE"      == "a \<bind> (\<lambda>x. e)"
+  "_do (_nobind b) e"      == "b >>= (CONST K_bind e)"
 
 
 subsection \<open>Hoare logic\<close>
@@ -174,6 +177,12 @@ theorem valid_get [wp]:
 theorem validNF_get [wp]:
   "\<lbrace> \<lambda>s. P s s \<rbrace> get \<lbrace> P \<rbrace>!"
   unfolding validNF_def valid_def no_fail_def get_def by auto
+
+theorem validNF_get_post:
+  "\<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace>
+    get
+   \<lbrace> \<lambda>r s es. r = s0 \<and> s = s0 \<and> es = [] \<rbrace>!"
+  apply wp by auto
 
 theorem valid_put [wp]:
   "\<lbrace> \<lambda>s. P () x \<rbrace> put x \<lbrace> P \<rbrace>"
@@ -260,6 +269,58 @@ theorem valid_modify [wp]:
 theorem validNF_modify [wp]:
   "\<lbrace> \<lambda>s. P () (f s) \<rbrace> modify f \<lbrace> P \<rbrace>!"
   unfolding modify_def by wp
+
+theorem valid_nondet [wp]:
+  assumes "\<lbrace> P1 \<rbrace> f \<lbrace> Q \<rbrace>"
+    and "\<lbrace> P2 \<rbrace> g \<lbrace> Q \<rbrace>"
+  shows "\<lbrace> \<lambda>s es. P1 s es \<and> P2 s es \<rbrace> f \<squnion> g \<lbrace> Q \<rbrace>"
+  using assms unfolding valid_def nondet_def
+  apply auto subgoal for s es r s' b
+    apply (cases "f s") apply (cases "g s") apply auto
+    by fastforce+
+  done
+
+theorem validNF_nondet [wp]:
+  assumes "\<lbrace> P1 \<rbrace> f \<lbrace> Q \<rbrace>!"
+    and "\<lbrace> P2 \<rbrace> g \<lbrace> Q \<rbrace>!"
+  shows "\<lbrace> \<lambda>s es. P1 s es \<and> P2 s es \<rbrace> f \<squnion> g \<lbrace> Q \<rbrace>!"
+  unfolding validNF_def fail_def
+  apply (rule conjI)
+  subgoal
+    apply (rule valid_nondet)
+    using assms unfolding validNF_def by auto
+  subgoal
+    using assms unfolding validNF_def no_fail_def nondet_def
+    apply auto subgoal for s es
+      apply (cases "f s") apply (cases "g s") by auto
+    done
+  done
+
+theorem valid_nondet2:
+  assumes "\<lbrace> P \<rbrace> f \<lbrace> Q1 \<rbrace>"
+    and "\<lbrace> P \<rbrace> g \<lbrace> Q2 \<rbrace>"
+  shows "\<lbrace> P \<rbrace> f \<squnion> g \<lbrace> \<lambda>r s es. Q1 r s es \<or> Q2 r s es \<rbrace>"
+  using assms unfolding valid_def nondet_def
+  apply auto subgoal for s es r s' b
+    apply (cases "f s") apply (cases "g s") apply auto
+    by fastforce+
+  done
+
+theorem validNF_nondet2 [wp]:
+  assumes "\<lbrace> P \<rbrace> f \<lbrace> Q1 \<rbrace>!"
+    and "\<lbrace> P \<rbrace> g \<lbrace> Q2 \<rbrace>!"
+  shows "\<lbrace> P \<rbrace> f \<squnion> g \<lbrace> \<lambda>r s es. Q1 r s es \<or> Q2 r s es \<rbrace>!"
+  unfolding validNF_def fail_def
+  apply (rule conjI)
+  subgoal
+    apply (rule valid_nondet2)
+    using assms unfolding validNF_def by auto
+  subgoal
+    using assms unfolding validNF_def no_fail_def nondet_def
+    apply auto subgoal for s es
+      apply (cases "f s") apply (cases "g s") by auto
+    done
+  done
 
 theorem valid_whileLoop':
   assumes "\<And>r. \<lbrace> \<lambda>s es. I r s es \<and> C r s \<rbrace> B r \<lbrace> I \<rbrace>"
@@ -444,5 +505,40 @@ proof -
   show ?thesis
     unfolding valid_def using a by auto
 qed
+
+lemma validNF_frame:
+  assumes "\<lbrace> \<lambda>s t. P s \<and> nil\<^sub>e t \<rbrace> c \<lbrace> \<lambda>r s t. P' r s \<and> Q s t \<rbrace>!"
+  shows "\<lbrace> \<lambda>s t. P s \<and> R t \<rbrace> c \<lbrace> \<lambda> r s t. P' r s \<and> (R ^\<^sub>e Q s) t \<rbrace>!"
+  unfolding validNF_def apply auto
+  subgoal using assms valid_frame
+    unfolding validNF_def by fastforce
+  subgoal using assms
+    unfolding validNF_def no_fail_def
+    by (simp add: nil_event_def)
+  done
+
+lemma valid_frame2:
+  assumes "\<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace> c
+           \<lbrace> \<lambda>r s es. Q r s \<and> es = g s0 \<rbrace>"
+  shows "\<lbrace> \<lambda>s es. s = s0 \<and> es = es0 \<rbrace> c
+         \<lbrace> \<lambda>r s es. Q r s \<and> es = es0 @ g s0 \<rbrace>"
+  unfolding valid_def apply auto
+  subgoal for s r s'
+    using assms unfolding valid_def by fastforce
+  subgoal for s r s'
+    using assms unfolding valid_def by fastforce
+  done
+
+lemma validNF_frame2:
+  assumes "\<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace> c
+           \<lbrace> \<lambda>r s es. Q r s \<and> es = g s0 \<rbrace>!"
+  shows "\<lbrace> \<lambda>s es. s = s0 \<and> es = es0 \<rbrace> c
+         \<lbrace> \<lambda>r s es. Q r s \<and> es = es0 @ g s0 \<rbrace>!"
+  unfolding validNF_def apply auto
+  subgoal using assms valid_frame2
+    unfolding validNF_def by fastforce
+  subgoal using assms
+    unfolding validNF_def no_fail_def by auto
+  done
 
 end

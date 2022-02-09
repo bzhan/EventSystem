@@ -50,13 +50,13 @@ fun apply_fst_st :: "'t \<Rightarrow> 'a \<times> 's \<times> 'e list \<Rightarr
   "apply_fst_st t (r, s, es) = (r, (s, t), es)"
 
 fun apply_fst :: "('s,'e,'a) event_monad \<Rightarrow> ('s\<times>'t,'e,'a) event_monad" where
-  "apply_fst p (s, t) = (let (rs, f) = p s in ((apply_fst_st t) ` rs, f))"
+  "apply_fst c (s, t) = (let (rs, f) = c s in ((apply_fst_st t) ` rs, f))"
 
 fun apply_snd_st :: "'s \<Rightarrow> 'a \<times> 't \<times> 'e list \<Rightarrow> 'a \<times> ('s \<times> 't) \<times> 'e list" where
   "apply_snd_st s (r, t, es) = (r, (s, t), es)"
 
 fun apply_snd :: "('t,'e,'a) event_monad \<Rightarrow> ('s\<times>'t,'e,'a) event_monad" where
-  "apply_snd p (s, t) = (let (rs, f) = p t in ((apply_snd_st s) ` rs, f))"
+  "apply_snd c (s, t) = (let (rs, f) = c t in ((apply_snd_st s) ` rs, f))"
 
 subsection \<open>Validity for systems\<close>
 
@@ -130,6 +130,14 @@ lemma sValid_exists_pre:
 
 lemma sValidNF_exists_pre:
   "sValidNF sys (\<lambda>s t. (\<exists>x. P x s t) \<and> R s t) e Q \<longleftrightarrow> (\<forall>x. sValidNF sys (\<lambda>s t. P x s t \<and> R s t) e Q)"
+  unfolding sValidNF_def sValid_def sNo_fail_def by fastforce
+
+lemma sValid_exists_pre2:
+  "sValid sys (\<lambda>s t. \<exists>x. P x s t) e Q \<longleftrightarrow> (\<forall>x. sValid sys (\<lambda>s t. P x s t) e Q)"
+  unfolding sValid_def by auto
+
+lemma sValidNF_exists_pre2:
+  "sValidNF sys (\<lambda>s t. \<exists>x. P x s t) e Q \<longleftrightarrow> (\<forall>x. sValidNF sys (\<lambda>s t. P x s t) e Q)"
   unfolding sValidNF_def sValid_def sNo_fail_def by fastforce
 
 theorem sValid_frame:
@@ -404,5 +412,176 @@ proof -
      apply (rule valid_apply_snd) apply (rule a1)
     using a2 by auto
 qed
+
+subsection \<open>Validity for lists of systems\<close>
+
+fun apply_idx_st :: "'s list \<Rightarrow> nat \<Rightarrow> 'a \<times> 's \<times> 'e list \<Rightarrow> 'a \<times> 's list \<times> 'e list" where
+  "apply_idx_st slist i (r, s, es) = (r, slist[i := s], es)"
+
+fun apply_idx :: "('s,'e,'a) event_monad \<Rightarrow> nat \<Rightarrow> ('s list,'e,'a) event_monad" where
+  "apply_idx c i slist = (let (rs, f) = c (slist ! i) in ((apply_idx_st slist i) ` rs, f))"
+
+lemma valid_apply_idx:
+  assumes
+    "\<And>s0. \<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace>
+       c
+     \<lbrace> \<lambda>_ s es. s = f s0 \<and> es = g s0 \<rbrace>"
+  shows
+    "\<lbrace> \<lambda>s es. s = slist \<and> es = [] \<rbrace>
+       apply_idx c i
+     \<lbrace> \<lambda>_ s es. s = slist[i := f (slist ! i)] \<and> es = g (slist ! i) \<rbrace>"
+  unfolding valid_def apply auto
+  subgoal for r s es
+    apply (cases "c (slist ! i)")
+    apply auto using assms(1) unfolding valid_def
+    by (metis (mono_tags, lifting) case_prodD fst_conv)
+  subgoal for r s es
+    apply (cases "c (slist ! i)")
+    apply auto using assms(1) unfolding valid_def by fastforce
+  done
+
+lemma validNF_apply_idx:
+  assumes
+    "\<And>s0. \<lbrace> \<lambda>s es. s = s0 \<and> es = [] \<rbrace>
+       c
+     \<lbrace> \<lambda>_ s es. s = f s0 \<and> es = g s0 \<rbrace>!"
+  shows
+    "\<lbrace> \<lambda>s es. s = slist \<and> es = [] \<rbrace>
+       apply_idx c i
+     \<lbrace> \<lambda>_ s es. s = slist[i := f (slist ! i)] \<and> es = g (slist ! i) \<rbrace>!"
+  unfolding validNF_def apply auto
+  subgoal
+    apply (rule valid_apply_idx)
+    using assms unfolding validNF_def by auto
+  subgoal
+    apply (auto simp add: no_fail_def)
+    apply (cases "c (slist ! i)")
+    apply auto
+    using assms unfolding validNF_def no_fail_def
+    by (metis snd_conv)
+  done
+
+lemma valid_apply_idx2:
+  assumes "\<And>i. i < N \<Longrightarrow> \<lbrace> \<lambda>s es. P i s \<and> nil\<^sub>e es \<rbrace> c \<lbrace> \<lambda>r s es. Q i r s es \<rbrace>"
+    and "j < N"
+  shows "\<lbrace> \<lambda>s es. length s = N \<and> (\<forall>i. i < N \<longrightarrow> P i (s ! i)) \<and> nil\<^sub>e es \<rbrace>
+           apply_idx c j
+         \<lbrace> \<lambda>r s es. length s = N \<and> (\<forall>i. i < N \<longrightarrow> i \<noteq> j \<longrightarrow> P i (s ! i)) \<and> Q j r (s ! j) es \<rbrace>"
+  unfolding valid_def apply clarify
+  subgoal for s es r s' es'
+    apply (cases "c (s ! j)")
+    subgoal premises pre for a b
+    proof -
+      from assms(1)[of j, unfolded valid_def]
+      have a: "\<forall>(r, s', es2)\<in>fst (c (s ! j)). Q j r s' (es @ es2)"
+        using pre assms(2) by fastforce
+      show ?thesis
+        using pre a assms(2) by auto
+    qed
+    done
+  done
+
+lemma validNF_apply_idx2:
+  assumes "\<And>i. i < N \<Longrightarrow> \<lbrace> \<lambda>s es. P i s \<and> nil\<^sub>e es \<rbrace> c \<lbrace> \<lambda>r s es. Q i r s es \<rbrace>!"
+    and "j < N"
+  shows "\<lbrace> \<lambda>s es. length s = N \<and> (\<forall>i. i < N \<longrightarrow> P i (s ! i)) \<and> nil\<^sub>e es \<rbrace>
+           apply_idx c j
+         \<lbrace> \<lambda>r s es. length s = N \<and> (\<forall>i. i < N \<longrightarrow> i \<noteq> j \<longrightarrow> P i (s ! i)) \<and> Q j r (s ! j) es \<rbrace>!"
+  unfolding validNF_def apply (rule conjI)
+  subgoal
+    apply (rule valid_apply_idx2)
+    using assms unfolding validNF_def by auto
+  subgoal
+    apply (auto simp add: no_fail_def)
+    subgoal for s es
+      apply (cases "c (s ! j)")
+      apply auto
+      using assms unfolding validNF_def no_fail_def
+      by (metis snd_conv)
+    done
+  done
+
+subsection \<open>Valid and ValidNF for append\<close>
+
+lemma reachable_list_append_cases:
+  "reachable_list sys (es1 @ es2) s (s'', rs) \<Longrightarrow>
+   (\<And>s' rs1 rs2. rs = rs1 @ rs2 \<Longrightarrow> reachable_list sys es1 s (s', rs1) \<Longrightarrow>
+      reachable_list sys es2 s' (s'', rs2) \<Longrightarrow> P) \<Longrightarrow> P"
+proof (induction es1 arbitrary: es2 s rs P)
+  case Nil
+  show ?case
+    apply (rule Nil(2)[of "[]" rs s])
+    apply auto[1]
+     apply (rule reachable_list_Nil)
+    using Nil(1) by auto
+next
+  case (Cons e es1')
+  have a: "reachable_list sys (e # es1' @ es2) s (s'', rs)"
+    using Cons(2) by auto
+  obtain s' es1'' es2'' where b: "rs = es1'' @ es2''" "reachable sys e s (s', es1'')"
+    "reachable_list sys (es1' @ es2) s' (s'', es2'')"
+    using reachable_list_Cons_cases[OF a] by metis
+  obtain s1' rs1' rs2' where c: "es2'' = rs1' @ rs2'" "reachable_list sys es1' s' (s1', rs1')"
+    "reachable_list sys es2 s1' (s'', rs2')"
+    using Cons(1)[OF b(3)] by metis
+  have d: "rs = (es1'' @ rs1') @ rs2'"
+    using b(1) c(1) by auto
+  have e: "reachable_list sys (e # es1') s (s1', es1'' @ rs1')"
+    by (rule reachable_list_Cons[OF b(2) c(2)])
+  show ?case
+    by (rule Cons(3)[OF d e c(3)])
+qed
+
+theorem sValid_list_append:
+  assumes "sValid_list sys P es1 Q"
+    and "sValid_list sys Q es2 R"
+  shows "sValid_list sys P (es1 @ es2) R"
+  unfolding sValid_list_def
+  apply auto subgoal for s es s' es'
+    apply (elim reachable_list_append_cases)
+    using assms unfolding sValid_list_def by fastforce
+  done
+
+inductive_cases terminates_list_Cons_cases: "terminates_list sys (e # es) s"
+
+lemma terminates_list_append:
+  "terminates_list sys es1 s \<Longrightarrow>
+   \<forall>s' es'. reachable_list sys es1 s (s', es') \<longrightarrow> terminates_list sys es2 s' \<Longrightarrow>
+   terminates_list sys (es1 @ es2) s"
+proof (induction es1 arbitrary: es2 s)
+  case Nil
+  have a: "reachable_list sys [] s (s, [])"
+    by (rule reachable_list_Nil)
+  show ?case
+    using a Nil(2) by auto
+next
+  case (Cons e es1)
+  have a: "terminates sys e s \<and> (\<forall>s'. (\<exists>es'. reachable sys e s (s', es')) \<longrightarrow> terminates_list sys es1 s')"
+    using terminates_list_Cons_cases[OF Cons(2)] by blast
+  show ?case
+    apply simp
+    apply (rule terminates_list_Cons)
+    using a apply auto[1]
+    apply clarify subgoal premises pre for s' es'
+      apply (rule Cons(1))
+      using a pre apply auto[1]
+      apply clarify subgoal premises pre2 for s'' es''
+        using reachable_list_Cons[OF pre pre2] Cons(3) by auto
+      done
+    done
+qed
+
+theorem sValidNF_list_append:
+  assumes "sValidNF_list sys P es1 Q"
+    and "sValidNF_list sys Q es2 R"
+  shows "sValidNF_list sys P (es1 @ es2) R"
+  unfolding sValidNF_list_def apply auto
+  subgoal using assms unfolding sValidNF_list_def
+    using sValid_list_append by auto
+  subgoal unfolding sNo_fail_list_def
+    using assms unfolding sValidNF_list_def sNo_fail_list_def apply auto
+    apply (rule terminates_list_append) apply auto
+    by (meson sValid_list_def)
+  done
 
 end

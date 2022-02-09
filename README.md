@@ -1,4 +1,4 @@
-## Verifying partition scheduling using event systems
+## Compositional Verification of Interacting Systems using Event Monads
 
 The code is tested on Isabelle2021 with AutoCorres 1.8.
 
